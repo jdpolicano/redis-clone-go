@@ -87,7 +87,7 @@ func (pr *ProtocolReader[T]) ReadProto() (T, error) {
 type EchoParser struct{}
 
 func (pp *EchoParser) TryParse(b []byte) ([]byte, int, error) {
-	if strings.Contains(string(b), "pong\r\n") {
+	if strings.Contains(string(b), "ping\r\n") {
 		return b, len(b), nil
 	}
 	return nil, 0, ErrIncompleteStream
