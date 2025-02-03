@@ -53,6 +53,7 @@ func (pr *ProtocolReader[T]) shiftLeft(n int) {
 	pr.head -= n
 }
 
+// possible cases I'm trying to reel in here.
 // n = 0 err = fatal
 // n = 0 err = eof
 // n > 0 err = fatal
@@ -76,19 +77,22 @@ func (pr *ProtocolReader[T]) ReadProto() (T, error) {
 				if parseErr != ErrIncompleteStream {
 					return *new(T), parseErr
 				}
-				continue
+			} else {
+				pr.shiftLeft(size)
+				return proto, nil
 			}
-			pr.shiftLeft(size)
-			return proto, nil
 		}
 	}
 }
 
-type EchoParser struct{}
+// TODO remove this when we start passing the ping stages...
+type PingParser struct{}
 
-func (pp *EchoParser) TryParse(b []byte) ([]byte, int, error) {
-	if strings.Contains(string(b), "ping\r\n") {
-		return b, len(b), nil
+func (pp *PingParser) TryParse(b []byte) (bool, int, error) {
+	matcher := "ping\r\n"
+	idx := strings.LastIndex(string(b), matcher)
+	if idx < 0 {
+		return false, 0, ErrIncompleteStream
 	}
-	return nil, 0, ErrIncompleteStream
+	return true, idx + len(matcher), nil
 }
