@@ -5,6 +5,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -89,6 +90,7 @@ func (pr *ProtocolReader[T]) ReadProto() (T, error) {
 type PingParser struct{}
 
 func (pp *PingParser) TryParse(b []byte) (bool, int, error) {
+	fmt.Println("begin...", string(b), "...end")
 	matcher := "ping\r\n"
 	idx := strings.LastIndex(string(b), matcher)
 	if idx < 0 {
