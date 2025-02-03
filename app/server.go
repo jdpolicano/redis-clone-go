@@ -26,5 +26,14 @@ func main() {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
-	conn.Write([]byte("+PONG\r\n"))
+	pp := NewProtocolReader(conn, &EchoParser{})
+	for {
+		msg, err := pp.ReadProto()
+		fmt.Println(string(msg))
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+		conn.Write([]byte("+PONG\r\n"))
+	}
 }
