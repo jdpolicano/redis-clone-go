@@ -70,9 +70,9 @@ func (pr *ProtocolReader[T]) ReadProto() (T, error) {
 		}
 		// attempt to read
 		n, readErr := pr.r.Read(pr.buf[pr.head:])
-		pr.head += n
 		pr.err = readErr
 		if n > 0 {
+			pr.head += n
 			proto, size, parseErr := pr.pp.TryParse(pr.buf[:pr.head])
 			if parseErr != nil {
 				if parseErr != ErrIncompleteStream {

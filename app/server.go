@@ -36,14 +36,58 @@ func main() {
 func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
+	pp := NewProtocolReader(conn, &RespParser{})
 	for {
-		pp := NewProtocolReader(conn, &RespParser{})
 		el, err := pp.ReadProto()
 		if err != nil {
-			fmt.Println(err)
 			return
 		}
-		fmt.Println(el)
-		conn.Write([]byte("+PONG\r\n"))
+
+		if el.Type != Array {
+			errMsg := "err unexpected type"
+			fmt.Println(errMsg, el.Type)
+			ret, _ := Serialize(SimpleError, []byte(errMsg))
+			conn.Write(ret)
+			return
+		}
+
+		elements := el.Value.([]RespValue)
+
+		if len(elements) < 1 {
+			errMsg := []byte("err expected more arguments")
+			fmt.Println(string(errMsg))
+			ret, _ := Serialize(SimpleError, errMsg)
+			conn.Write(ret)
+			continue
+		}
+
+		if elements[0].EqualsAsciiInsensitive("ping") {
+			s, _ := SerializeSimpleString([]byte("PONG"))
+			conn.Write(s)
+			continue
+		}
+
+		if elements[0].EqualsAsciiInsensitive("echo") {
+			if len(elements) < 2 {
+				errMsg := []byte("err expected more arguments")
+				fmt.Println(string(errMsg))
+				ret, _ := Serialize(SimpleError, errMsg)
+				conn.Write(ret)
+				continue
+			}
+
+			echo, err := elements[1].Serialize()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			conn.Write(echo)
+			continue
+		}
+
+		errMsg := fmt.Sprintf("unknown command '%s'", elements[0].String())
+		fmt.Println(errMsg)
+		ret, _ := Serialize(SimpleError, []byte(errMsg))
+		conn.Write(ret)
 	}
 }
