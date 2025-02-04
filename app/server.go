@@ -35,13 +35,15 @@ func main() {
 
 func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer conn.Close()
 	for {
-		pp := NewProtocolReader(conn, &PingParser{})
-		_, err := pp.ReadProto()
+		pp := NewProtocolReader(conn, &RespParser{})
+		el, err := pp.ReadProto()
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
+		fmt.Println(el)
 		conn.Write([]byte("+PONG\r\n"))
 	}
 }
