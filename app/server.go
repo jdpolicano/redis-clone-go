@@ -22,6 +22,7 @@ func main() {
 
 	var wg = sync.WaitGroup{}
 	defer wg.Wait()
+	db := NewDatabase("jakes db")
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -29,11 +30,11 @@ func main() {
 			os.Exit(1)
 		}
 		wg.Add(1)
-		go handleConnection(conn, &wg)
+		go handleConnection(conn, &db, &wg)
 	}
 }
 
-func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
+func handleConnection(conn net.Conn, db *Database, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
 	pp := NewProtocolReader(conn, &RespParser{})
@@ -61,13 +62,13 @@ func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 			continue
 		}
 
-		if elements[0].EqualsAsciiInsensitive("ping") {
+		if elements[0].EqualAsciiInsensitive("ping") {
 			s, _ := SerializeSimpleString([]byte("PONG"))
 			conn.Write(s)
 			continue
 		}
 
-		if elements[0].EqualsAsciiInsensitive("echo") {
+		if elements[0].EqualAsciiInsensitive("echo") {
 			if len(elements) < 2 {
 				errMsg := []byte("err expected more arguments")
 				fmt.Println(string(errMsg))
@@ -82,6 +83,45 @@ func handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 				return
 			}
 			conn.Write(echo)
+			continue
+		}
+
+		if elements[0].EqualAsciiInsensitive("set") {
+			if len(elements) < 3 {
+				errMsg := []byte("err expected more arguments")
+				fmt.Println(string(errMsg))
+				ret, _ := Serialize(SimpleError, errMsg)
+				conn.Write(ret)
+				continue
+			}
+
+			key := elements[1]
+			value := elements[2]
+			db.Set(key.String(), value)
+			ok := []byte("OK")
+			res, _ := Serialize(SimpleString, ok)
+			conn.Write(res)
+			continue
+		}
+
+		if elements[0].EqualAsciiInsensitive("get") {
+			if len(elements) < 2 {
+				errMsg := []byte("err expected more arguments")
+				fmt.Println(string(errMsg))
+				ret, _ := Serialize(SimpleError, errMsg)
+				conn.Write(ret)
+				continue
+			}
+
+			key := elements[1].String()
+			value, exists := db.Get(key)
+			if !exists {
+				none, _ := RespValue{NullBulkString, nil}.Serialize()
+				conn.Write(none)
+			} else {
+				msg, _ := value.Serialize()
+				conn.Write(msg)
+			}
 			continue
 		}
 

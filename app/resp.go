@@ -38,7 +38,7 @@ func (e ErrSerializeUnhandledType) Error() string {
 
 type RespParser struct{}
 
-func (rp *RespParser) TryParse(b []byte) (*RespValue, int, error) {
+func (rp RespParser) TryParse(b []byte) (RespValue, int, error) {
 	return Deserialize(b)
 }
 
@@ -59,16 +59,14 @@ type RespValue struct {
 	Value any      // inner data. based on t, you should be able to safely cast based on 't'
 }
 
-func (rv *RespValue) String() string {
+func (rv RespValue) String() string {
 	switch rv.Type {
 	case SimpleString:
-		return string(rv.Value.([]byte))
 	case SimpleError:
+	case BulkString:
 		return string(rv.Value.([]byte))
 	case Integer:
 		return fmt.Sprint(rv.Value.(int))
-	case BulkString:
-		return string(rv.Value.([]byte))
 	case Array:
 		{
 			var sb strings.Builder
@@ -87,7 +85,7 @@ func (rv *RespValue) String() string {
 }
 
 // Serialize a resp value itself...
-func (rv *RespValue) Serialize() ([]byte, error) {
+func (rv RespValue) Serialize() ([]byte, error) {
 	if rv.Type == Array {
 		// this cast should be safe, but may want to consider doing some validation in the future
 		inner := rv.Value.([]RespValue)
@@ -105,7 +103,7 @@ func (rv *RespValue) Serialize() ([]byte, error) {
 	return Serialize(rv.Type, rv.Value)
 }
 
-func (rv *RespValue) EqualsAsciiInsensitive(s string) bool {
+func (rv RespValue) EqualAsciiInsensitive(s string) bool {
 	switch rv.Type {
 	case BulkString:
 		return bytesEqualsString(rv.Value.([]byte), s)
@@ -159,9 +157,13 @@ func Serialize(t RespType, value any) ([]byte, error) {
 	case Integer:
 		cast := value.(int)
 		return SerializeInteger(cast), nil
+	case NullBulkString:
+		return SerializeNullBulkString(), nil
 	case BulkString:
 		cast := value.([]byte)
 		return SerializeBulkString(cast), nil
+	case NullArray:
+		return SerializeNullArray(), nil
 	case Array:
 		cast := value.([][]byte)
 		arr := make([][]byte, 0, DefaultArrayAlloc)
@@ -230,7 +232,7 @@ func serializeWithPrefixSlice(prefix []byte, body []byte) []byte {
 	return append(ret, RespEOF...)
 }
 
-func Deserialize(b []byte) (*RespValue, int, error) {
+func Deserialize(b []byte) (RespValue, int, error) {
 	switch b[0] {
 	case '+':
 		return DeserializeSimpleString(b)
@@ -243,19 +245,19 @@ func Deserialize(b []byte) (*RespValue, int, error) {
 	case '*':
 		return DeserializeArray(b)
 	}
-	return nil, 0, nil
+	return RespValue{}, 0, nil
 }
 
-func DeserializeSimpleString(b []byte) (*RespValue, int, error) {
+func DeserializeSimpleString(b []byte) (RespValue, int, error) {
 	endIdx := bytes.Index(b, RespEOF)
 	if endIdx < 0 {
 		return incomplete()
 	}
 	inner := bytes.Clone(b[1:endIdx])
-	return &RespValue{SimpleString, inner}, endIdx + RespEOFLen, nil
+	return RespValue{SimpleString, inner}, endIdx + RespEOFLen, nil
 }
 
-func DeserializeSimpleError(b []byte) (*RespValue, int, error) {
+func DeserializeSimpleError(b []byte) (RespValue, int, error) {
 	ss, size, err := DeserializeSimpleString(b)
 	if err != nil {
 		return ss, size, err
@@ -264,7 +266,7 @@ func DeserializeSimpleError(b []byte) (*RespValue, int, error) {
 	return ss, size, err
 }
 
-func DeserializeInteger(b []byte) (*RespValue, int, error) {
+func DeserializeInteger(b []byte) (RespValue, int, error) {
 	endIdx := bytes.Index(b, RespEOF)
 	if endIdx < 0 {
 		return incomplete()
@@ -273,10 +275,10 @@ func DeserializeInteger(b []byte) (*RespValue, int, error) {
 	if e != nil {
 		return err(e)
 	}
-	return &RespValue{Integer, i}, endIdx + RespEOFLen, nil
+	return RespValue{Integer, i}, endIdx + RespEOFLen, nil
 }
 
-func DeserializeBulkString(b []byte) (*RespValue, int, error) {
+func DeserializeBulkString(b []byte) (RespValue, int, error) {
 	endLenSegment := bytes.Index(b, RespEOF)
 	if endLenSegment < 0 {
 		return incomplete()
@@ -288,7 +290,7 @@ func DeserializeBulkString(b []byte) (*RespValue, int, error) {
 	}
 
 	if msgLen < 0 {
-		return &RespValue{NullBulkString, nil}, endLenSegment + RespEOFLen, nil
+		return RespValue{NullBulkString, nil}, endLenSegment + RespEOFLen, nil
 	}
 
 	beginDataSegment := endLenSegment + RespEOFLen
@@ -305,10 +307,10 @@ func DeserializeBulkString(b []byte) (*RespValue, int, error) {
 	}
 
 	data := bytes.Clone(b[beginDataSegment:endDataSegment])
-	return &RespValue{BulkString, data}, endDataSegment + RespEOFLen, nil
+	return RespValue{BulkString, data}, endDataSegment + RespEOFLen, nil
 }
 
-func DeserializeArray(b []byte) (*RespValue, int, error) {
+func DeserializeArray(b []byte) (RespValue, int, error) {
 	endLenSegment := bytes.Index(b, RespEOF)
 
 	if endLenSegment < 0 {
@@ -322,7 +324,7 @@ func DeserializeArray(b []byte) (*RespValue, int, error) {
 	}
 
 	if arrLen < 0 {
-		return &RespValue{NullArray, nil}, endLenSegment + RespEOFLen, nil
+		return RespValue{NullArray, nil}, endLenSegment + RespEOFLen, nil
 	}
 
 	elements := make([]RespValue, 0, DefaultArrayAlloc)
@@ -336,18 +338,18 @@ func DeserializeArray(b []byte) (*RespValue, int, error) {
 		}
 		arrTailIdx += size
 		arrLen -= 1
-		elements = append(elements, *el)
+		elements = append(elements, el)
 	}
 
-	return &RespValue{Array, elements}, arrTailIdx, nil
+	return RespValue{Array, elements}, arrTailIdx, nil
 }
 
-func incomplete() (*RespValue, int, error) {
-	return nil, 0, ErrIncompleteStream
+func incomplete() (RespValue, int, error) {
+	return RespValue{}, 0, ErrIncompleteStream
 }
 
-func err(e error) (*RespValue, int, error) {
-	return nil, 0, e
+func err(e error) (RespValue, int, error) {
+	return RespValue{}, 0, e
 }
 
 func isEof(b []byte) bool {
