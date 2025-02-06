@@ -20,9 +20,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var wg = sync.WaitGroup{}
+	wg := sync.WaitGroup{}
 	defer wg.Wait()
 	db := NewDatabase("jakes db")
+	router := NewCommandRouter()
+	router.Register(GetCommand)
+	router.Register(SetCommand)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -30,104 +33,27 @@ func main() {
 			os.Exit(1)
 		}
 		wg.Add(1)
-		go handleConnection(conn, &db, &wg)
+		go handleConnection(conn, &db, &router, &wg)
 	}
 }
 
-func handleConnection(conn net.Conn, db *Database, wg *sync.WaitGroup) {
+func handleConnection(conn net.Conn, db *Database, router *CommandRouter, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
 	pp := NewProtocolReader(conn, &RespParser{})
+	ctx := NewRequestContext(conn, db)
 	for {
-		el, err := pp.ReadProto()
+		args, err := pp.ReadProto()
 		if err != nil {
 			return
 		}
 
-		if el.Type != Array {
-			errMsg := "err unexpected type"
-			fmt.Println(errMsg, el.Type)
-			ret, _ := Serialize(SimpleError, []byte(errMsg))
-			conn.Write(ret)
-			return
-		}
-
-		elements := el.Value.([]RespValue)
-
-		if len(elements) < 1 {
-			errMsg := []byte("err expected more arguments")
-			fmt.Println(string(errMsg))
-			ret, _ := Serialize(SimpleError, errMsg)
-			conn.Write(ret)
+		if args.Type != Array {
+			// to-do handle error here.
+			ctx.SendError("args should be array value")
 			continue
 		}
 
-		if elements[0].EqualAsciiInsensitive("ping") {
-			s, _ := SerializeSimpleString([]byte("PONG"))
-			conn.Write(s)
-			continue
-		}
-
-		if elements[0].EqualAsciiInsensitive("echo") {
-			if len(elements) < 2 {
-				errMsg := []byte("err expected more arguments")
-				fmt.Println(string(errMsg))
-				ret, _ := Serialize(SimpleError, errMsg)
-				conn.Write(ret)
-				continue
-			}
-
-			echo, err := elements[1].Serialize()
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			conn.Write(echo)
-			continue
-		}
-
-		if elements[0].EqualAsciiInsensitive("set") {
-			if len(elements) < 3 {
-				errMsg := []byte("err expected more arguments")
-				fmt.Println(string(errMsg))
-				ret, _ := Serialize(SimpleError, errMsg)
-				conn.Write(ret)
-				continue
-			}
-
-			key := elements[1]
-			value := elements[2]
-			db.Set(key.String(), value)
-			ok := []byte("OK")
-			res, _ := Serialize(SimpleString, ok)
-			conn.Write(res)
-			continue
-		}
-
-		if elements[0].EqualAsciiInsensitive("get") {
-			if len(elements) < 2 {
-				errMsg := []byte("err expected more arguments")
-				fmt.Println(string(errMsg))
-				ret, _ := Serialize(SimpleError, errMsg)
-				conn.Write(ret)
-				continue
-			}
-
-			key := elements[1].String()
-			value, exists := db.Get(key)
-			if !exists {
-				none, _ := RespValue{NullBulkString, nil}.Serialize()
-				conn.Write(none)
-			} else {
-				msg, _ := value.Serialize()
-				conn.Write(msg)
-			}
-			continue
-		}
-
-		errMsg := fmt.Sprintf("unknown command '%s'", elements[0].String())
-		fmt.Println(errMsg)
-		ret, _ := Serialize(SimpleError, []byte(errMsg))
-		conn.Write(ret)
+		router.Route(*ctx, args.Value.([]RespValue))
 	}
 }

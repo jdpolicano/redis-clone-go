@@ -45,11 +45,11 @@ func (rp RespParser) TryParse(b []byte) (RespValue, int, error) {
 type RespType int
 
 const (
-	SimpleString = iota
+	NullBulkString = iota
+	SimpleString
 	SimpleError
 	Integer
 	BulkString
-	NullBulkString
 	Array
 	NullArray
 )
@@ -60,20 +60,18 @@ type RespValue struct {
 }
 
 func (rv RespValue) String() string {
-	switch rv.Type {
-	case SimpleString:
-	case SimpleError:
-	case BulkString:
+	switch rv.Value.(type) {
+	case []byte:
 		return string(rv.Value.([]byte))
-	case Integer:
-		return fmt.Sprint(rv.Value.(int))
-	case Array:
+	case int:
+		return strconv.Itoa(rv.Value.(int))
+	case []RespValue:
 		{
 			var sb strings.Builder
 			sb.WriteString("[")
-			for idx, el := range rv.Value.([]*RespValue) {
+			for idx, el := range rv.Value.([]RespValue) {
 				sb.WriteString(el.String())
-				if idx < len(rv.Value.([]*RespValue))-1 {
+				if idx < len(rv.Value.([]RespValue))-1 {
 					sb.WriteString(", ")
 				}
 			}
@@ -82,6 +80,14 @@ func (rv RespValue) String() string {
 		}
 	}
 	return "unimplemented"
+}
+
+func (rv RespValue) ToLower() string {
+	return strings.ToLower(rv.String())
+}
+
+func (rv RespValue) ToInt() (int, error) {
+	return strconv.Atoi(rv.String())
 }
 
 // Serialize a resp value itself...
@@ -103,13 +109,27 @@ func (rv RespValue) Serialize() ([]byte, error) {
 	return Serialize(rv.Type, rv.Value)
 }
 
+func (rv RespValue) isInt() bool {
+	switch rv.Value.(type) {
+	case int:
+		return true
+	default:
+		return false
+	}
+}
+
+func (rv RespValue) isByteSlice() bool {
+	switch rv.Value.(type) {
+	case []byte:
+		return true
+	default:
+		return false
+	}
+}
+
 func (rv RespValue) EqualAsciiInsensitive(s string) bool {
-	switch rv.Type {
-	case BulkString:
-		return bytesEqualsString(rv.Value.([]byte), s)
-	case SimpleString:
-		return bytesEqualsString(rv.Value.([]byte), s)
-	case SimpleError:
+	switch rv.Value.(type) {
+	case []byte:
 		return bytesEqualsString(rv.Value.([]byte), s)
 	default:
 		return false
@@ -123,7 +143,9 @@ func bytesEqualsString(a []byte, b string) bool {
 	if al != bl {
 		return false
 	}
-	diff := byte('a' - 'A')
+
+	var diff byte = 'a' - 'A'
+
 	for i := 0; i < al; i++ {
 		aChar := a[i]
 		bChar := b[i]

@@ -1,26 +1,82 @@
 package main
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type Database struct {
 	name  string
-	lock  sync.RWMutex
-	store map[string]RespValue
+	lock  sync.Mutex
+	store map[string]*DBEntry
 }
 
 func NewDatabase(name string) Database {
-	return Database{name, sync.RWMutex{}, map[string]RespValue{}}
+	return Database{name, sync.Mutex{}, map[string]*DBEntry{}}
 }
 
-func (db *Database) Set(key string, value RespValue) {
+type DBEntry struct {
+	Value RespValue
+	TS    Timestamp
+}
+
+func NewDBEntry(v RespValue, ttl time.Duration) *DBEntry {
+	return &DBEntry{v, NewTimestamp(ttl)}
+}
+
+func (entry *DBEntry) Touch() {
+	entry.TS.LastTouched = time.Now()
+}
+
+func (entry *DBEntry) SwapInplace(v RespValue, ttl time.Duration) {
+	entry.Value = v
+	entry.TS = NewTimestamp(ttl)
+}
+
+func (entry *DBEntry) Expired() bool {
+	if entry.TS.Expiry == 0 {
+		return false
+	}
+	return entry.TS.Created.Add(entry.TS.Expiry).Before(time.Now())
+}
+
+type Timestamp struct {
+	Created     time.Time
+	LastTouched time.Time
+	Expiry      time.Duration // for our purposes, a zero expiry duration indicates infitinite lifetime
+}
+
+func NewTimestamp(ttl time.Duration) Timestamp {
+	now := time.Now()
+	return Timestamp{now, now, ttl}
+}
+
+func (db *Database) Set(key string, value RespValue, ttl time.Duration) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
-	db.store[key] = value
+	// update in place to save an alloc hopefully
+	if entry, exists := db.store[key]; exists {
+		entry.SwapInplace(value, ttl)
+		return
+	}
+	entry := NewDBEntry(value, ttl)
+	db.store[key] = entry
+	return
 }
 
+// This needs to be carefully executed to avoid a lock contention with itself
 func (db *Database) Get(key string) (RespValue, bool) {
-	db.lock.RLock()
-	defer db.lock.RUnlock()
+	var none RespValue
+	db.lock.Lock()
+	defer db.lock.Unlock()
 	el, exists := db.store[key]
-	return el, exists
+	if exists {
+		if el.Expired() {
+			delete(db.store, key)
+			return none, false
+		}
+		el.Touch()
+		return el.Value, exists
+	}
+	return none, exists
 }
