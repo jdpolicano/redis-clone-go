@@ -26,6 +26,7 @@ func main() {
 	router := NewCommandRouter()
 	router.Register(GetCommand)
 	router.Register(SetCommand)
+	router.Register(EchoCommand)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
