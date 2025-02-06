@@ -27,6 +27,7 @@ func main() {
 	router.Register(GetCommand)
 	router.Register(SetCommand)
 	router.Register(EchoCommand)
+	router.Register(PingCommand)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
