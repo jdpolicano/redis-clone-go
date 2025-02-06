@@ -13,7 +13,6 @@ func main() {
 	fmt.Println("Logs from your program will appear here!")
 
 	// Uncomment this block to pass the first stage
-
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
@@ -22,12 +21,15 @@ func main() {
 
 	wg := sync.WaitGroup{}
 	defer wg.Wait()
+
 	db := NewDatabase("jakes db")
+
 	router := NewCommandRouter()
 	router.Register(GetCommand)
 	router.Register(SetCommand)
 	router.Register(EchoCommand)
 	router.Register(PingCommand)
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
