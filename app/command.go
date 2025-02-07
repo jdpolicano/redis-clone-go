@@ -40,12 +40,12 @@ type Command struct {
 	Call Callable
 }
 
-func NewCommandRouter() CommandRouter {
+func NewCommandRouter() *CommandRouter {
 	commands := make(map[string]Command)
-	return CommandRouter{commands}
+	return &CommandRouter{commands}
 }
 
-func (cr CommandRouter) Route(ctx RequestContext, args []RespValue) error {
+func (cr *CommandRouter) Route(ctx RequestContext, args []RespValue) error {
 	if len(args) < 1 {
 		return ErrNoArgumentSupplied{}
 	}
@@ -61,7 +61,7 @@ func (cr CommandRouter) Route(ctx RequestContext, args []RespValue) error {
 	return nil
 }
 
-func (cr CommandRouter) Register(cmd Command) {
+func (cr *CommandRouter) Register(cmd Command) {
 	cr.commands[cmd.Name] = cmd
 }
 

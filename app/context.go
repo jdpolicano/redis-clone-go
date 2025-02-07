@@ -10,10 +10,11 @@ import (
 type RequestContext struct {
 	Connection net.Conn  // the client connection to write to
 	DB         *Database // a database ref for reading and writing, must not be copied...
+	Config     *ServerConfig
 }
 
-func NewRequestContext(conn net.Conn, db *Database) *RequestContext {
-	return &RequestContext{conn, db}
+func NewRequestContext(conn net.Conn, db *Database, config *ServerConfig) *RequestContext {
+	return &RequestContext{conn, db, config}
 }
 
 func (rc RequestContext) SendError(msg string) {

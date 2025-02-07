@@ -6,13 +6,12 @@ import (
 )
 
 type Database struct {
-	name  string
 	lock  sync.Mutex
 	store map[string]*DBEntry
 }
 
-func NewDatabase(name string) Database {
-	return Database{name, sync.Mutex{}, map[string]*DBEntry{}}
+func NewDatabase() *Database {
+	return &Database{sync.Mutex{}, map[string]*DBEntry{}}
 }
 
 type DBEntry struct {

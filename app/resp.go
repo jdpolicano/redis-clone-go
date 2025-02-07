@@ -36,12 +36,6 @@ func (e ErrSerializeUnhandledType) Error() string {
 	return fmt.Sprintf("serialize unhanlded type '%d'", e)
 }
 
-type RespParser struct{}
-
-func (rp RespParser) TryParse(b []byte) (RespValue, int, error) {
-	return Deserialize(b)
-}
-
 type RespType int
 
 const (
@@ -121,6 +115,15 @@ func (rv RespValue) isInt() bool {
 func (rv RespValue) isByteSlice() bool {
 	switch rv.Value.(type) {
 	case []byte:
+		return true
+	default:
+		return false
+	}
+}
+
+func (rv RespValue) isArray() bool {
+	switch rv.Type {
+	case Array:
 		return true
 	default:
 		return false

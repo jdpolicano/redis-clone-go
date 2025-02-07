@@ -1,98 +1,108 @@
-// This file contains a utility for this program to read from io instances, parse them, and then return the parsed
-// data. The idea being, this instance will manage an internal buffer so as to maintain data between runs.
-
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"strings"
 )
 
-const InitMemory = 1 << 12  // 1 kb?
-const MinReadBytes = 1 << 8 // this is the minium amount our reader should read in order to decide if it wants to resize
-
 var ErrIncompleteStream = errors.New("stream incomplete, need more data")
-
 var ErrStreamClosed = errors.New("underlying stream has stopped returning data")
 
+// ProtoParser is a generic interface for trying to parse a message from a byte slice.
 type ProtoParser[T any] interface {
+	// TryParse attempts to parse a message from b.
+	// It returns the parsed message, the number of bytes consumed,
+	// and an error if parsing failed.
 	TryParse([]byte) (T, int, error)
 }
 
+const readChunkSize = 1024 // Amount of data to read each time from the io.Reader
+
+// ProtocolReader wraps an io.Reader and uses a ProtoParser to extract complete messages.
+// It internally uses a bytes.Buffer to accumulate data between reads.
 type ProtocolReader[T any] struct {
-	r    io.Reader
-	pp   ProtoParser[T]
-	head int
-	buf  []byte
-	err  error
+	r   io.Reader
+	pp  ProtoParser[T]
+	buf bytes.Buffer
+	err error // persistent error from the underlying reader (if any)
 }
 
+// NewProtocolReader returns a new ProtocolReader.
 func NewProtocolReader[T any](r io.Reader, pp ProtoParser[T]) *ProtocolReader[T] {
 	return &ProtocolReader[T]{
-		r:    r,
-		pp:   pp,
-		head: 0,
-		buf:  make([]byte, InitMemory),
-		err:  nil,
+		r:  r,
+		pp: pp,
 	}
 }
 
-func (pr *ProtocolReader[T]) resize() {
-	nb := make([]byte, (cap(pr.buf)*2)+1) // we know that the underlying buffer will be non-zero
-	copy(nb, pr.buf)
-	pr.buf = nb
-}
-
-func (pr *ProtocolReader[T]) space() int {
-	return cap(pr.buf) - pr.head
-}
-
-func (pr *ProtocolReader[T]) shiftLeft(n int) {
-	copy(pr.buf, pr.buf[n:])
-	pr.head -= n
-}
-
-// possible cases I'm trying to reel in here.
-// n = 0 err = fatal
-// n = 0 err = eof
-// n > 0 err = fatal
-// n > 0 err = eof
+// ReadProto attempts to parse and return a complete message of type T from the stream.
 func (pr *ProtocolReader[T]) ReadProto() (T, error) {
+	var temp [readChunkSize]byte
 	for {
-		if pr.err != nil {
+		// If a previous read encountered an error and there is no data buffered,
+		// then return that error.
+		if pr.err != nil && pr.buf.Len() == 0 {
 			return *new(T), pr.err
 		}
 
-		if pr.space() < MinReadBytes {
-			pr.resize()
+		// Try to parse a message from the current buffer.
+		b := pr.buf.Bytes()
+
+		msg, size, parseErr := pr.pp.TryParse(b)
+		if parseErr == nil {
+			// Successfully parsed a message.
+			// Remove the consumed bytes from the buffer.
+			pr.buf.Next(size)
+			return msg, nil
+		} else if parseErr != ErrIncompleteStream {
+			// A genuine parsing error occurred.
+			return *new(T), parseErr
 		}
-		// attempt to read
-		n, readErr := pr.r.Read(pr.buf[pr.head:])
-		pr.err = readErr
+
+		n, err := pr.r.Read(temp[:])
 		if n > 0 {
-			pr.head += n
-			proto, size, parseErr := pr.pp.TryParse(pr.buf[:pr.head])
-			if parseErr != nil {
-				if parseErr != ErrIncompleteStream {
-					return *new(T), parseErr
-				}
-			} else {
-				pr.shiftLeft(size)
-				return proto, nil
-			}
+			pr.buf.Write(temp[:n])
+		}
+		if err != nil {
+			// Save the error so that if there's no more data to parse, we return it.
+			pr.err = err
 		}
 	}
 }
 
-// TODO remove this when we start passing the ping stages...
+// ----------------------------------------------------------------------------
+// Example Parser Implementation: PingParser
+// ----------------------------------------------------------------------------
+
+// PingParser is an example implementation of ProtoParser for a simple "ping\r\n" protocol.
 type PingParser struct{}
 
+// TryParse looks for the string "ping\r\n" (case insensitive) in b.
+// If found, it returns true, the number of bytes consumed, and a nil error.
+// Otherwise, it returns ErrIncompleteStream.
 func (pp *PingParser) TryParse(b []byte) (bool, int, error) {
 	matcher := "ping\r\n"
+	// If the buffer is shorter than the expected matcher, we need more data.
+	if len(b) < len(matcher) {
+		return false, 0, ErrIncompleteStream
+	}
+	// Check if the matcher appears in the data (ignoring case).
 	idx := strings.LastIndex(strings.ToLower(string(b)), matcher)
 	if idx < 0 {
 		return false, 0, ErrIncompleteStream
 	}
+	// Return the parsed value (true), the number of bytes consumed, and no error.
 	return true, idx + len(matcher), nil
+}
+
+type RespParser struct{}
+
+func (rp RespParser) TryParse(b []byte) (RespValue, int, error) {
+	var none RespValue
+	if len(b) == 0 {
+		return none, 0, ErrIncompleteStream
+	}
+	return Deserialize(b)
 }
