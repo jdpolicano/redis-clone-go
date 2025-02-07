@@ -236,7 +236,7 @@ func SerializeArray(arr [][]byte) []byte {
 	for _, b := range arr {
 		prefix = append(prefix, b...)
 	}
-	return append(prefix, RespEOF...)
+	return prefix
 }
 
 func SerializeNullArray() []byte {
