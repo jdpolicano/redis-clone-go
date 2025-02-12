@@ -8,13 +8,14 @@ import (
 // tbd: each command workflow will need to have access to a lot of global state,
 // so this will likely exand eventually
 type RequestContext struct {
-	Connection net.Conn  // the client connection to write to
-	DB         *Database // a database ref for reading and writing, must not be copied...
-	Config     *ServerConfig
+	Connection  net.Conn                  // the client connection to write to
+	KVStore     *SharedRWStore[RespValue] // a database ref for reading and writing, must not be copied...
+	ExpiryStore *SharedRWStore[Timestamp] // the timestamps for all of the keys
+	Config      *SharedRWStore[string]    // the server's configuration details
 }
 
-func NewRequestContext(conn net.Conn, db *Database, config *ServerConfig) *RequestContext {
-	return &RequestContext{conn, db, config}
+func NewRequestContext(conn net.Conn, db *SharedRWStore[RespValue], expiry *SharedRWStore[Timestamp], config *SharedRWStore[string]) RequestContext {
+	return RequestContext{conn, db, expiry, config}
 }
 
 func (rc RequestContext) SendError(msg string) {

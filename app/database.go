@@ -5,38 +5,13 @@ import (
 	"time"
 )
 
-type Database struct {
-	lock  sync.Mutex
-	store map[string]*DBEntry
+type SharedRWStore[T any] struct {
+	lock  sync.RWMutex
+	store map[string]T
 }
 
-func NewDatabase() *Database {
-	return &Database{sync.Mutex{}, map[string]*DBEntry{}}
-}
-
-type DBEntry struct {
-	Value RespValue
-	TS    Timestamp
-}
-
-func NewDBEntry(v RespValue, ttl time.Duration) *DBEntry {
-	return &DBEntry{v, NewTimestamp(ttl)}
-}
-
-func (entry *DBEntry) Touch() {
-	entry.TS.LastTouched = time.Now()
-}
-
-func (entry *DBEntry) SwapInplace(v RespValue, ttl time.Duration) {
-	entry.Value = v
-	entry.TS = NewTimestamp(ttl)
-}
-
-func (entry *DBEntry) Expired() bool {
-	if entry.TS.Expiry == 0 {
-		return false
-	}
-	return entry.TS.Created.Add(entry.TS.Expiry).Before(time.Now())
+func NewSharedStore[T any]() *SharedRWStore[T] {
+	return &SharedRWStore[T]{sync.RWMutex{}, map[string]T{}}
 }
 
 type Timestamp struct {
@@ -45,37 +20,65 @@ type Timestamp struct {
 	Expiry      time.Duration // for our purposes, a zero expiry duration indicates infitinite lifetime
 }
 
+func NewKVStore() *SharedRWStore[RespValue] {
+	return &SharedRWStore[RespValue]{sync.RWMutex{}, map[string]RespValue{}}
+}
+
+func NewExpiryStore() *SharedRWStore[Timestamp] {
+	return &SharedRWStore[Timestamp]{sync.RWMutex{}, map[string]Timestamp{}}
+}
+
+func NewServerConfig() *SharedRWStore[string] {
+	return &SharedRWStore[string]{sync.RWMutex{}, map[string]string{}}
+}
+
 func NewTimestamp(ttl time.Duration) Timestamp {
 	now := time.Now()
 	return Timestamp{now, now, ttl}
 }
 
-func (db *Database) Set(key string, value RespValue, ttl time.Duration) {
+func (db *SharedRWStore[T]) Set(key string, value T) (T, bool) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
-	// update in place to save an alloc hopefully
-	if entry, exists := db.store[key]; exists {
-		entry.SwapInplace(value, ttl)
-		return
-	}
-	entry := NewDBEntry(value, ttl)
-	db.store[key] = entry
-	return
+	v, e := db.store[key]
+	db.store[key] = value
+	return v, e
 }
 
-// This needs to be carefully executed to avoid a lock contention with itself
-func (db *Database) Get(key string) (RespValue, bool) {
-	var none RespValue
+func (db *SharedRWStore[T]) Get(key string) (T, bool) {
+	db.lock.RLock()
+	defer db.lock.RUnlock()
+	el, exists := db.store[key]
+	return el, exists
+}
+
+func (db *SharedRWStore[T]) Delete(key string) (T, bool) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
-	el, exists := db.store[key]
-	if exists {
-		if el.Expired() {
-			delete(db.store, key)
-			return none, false
-		}
-		el.Touch()
-		return el.Value, exists
+	v, e := db.store[key]
+	delete(db.store, key)
+	return v, e
+}
+
+func (db *SharedRWStore[T]) Lock(key string) {
+	db.lock.Lock()
+}
+
+func (db *SharedRWStore[T]) RLock(key string) {
+	db.lock.RLock()
+}
+
+func (db *SharedRWStore[T]) Unlock(key string) {
+	db.lock.Unlock()
+}
+
+func (db *SharedRWStore[T]) RUnlock(key string) {
+	db.lock.RUnlock()
+}
+
+func (ts Timestamp) Expired() bool {
+	if time.Now().Sub(ts.Created) > ts.Expiry {
+		return true
 	}
-	return none, exists
+	return false
 }

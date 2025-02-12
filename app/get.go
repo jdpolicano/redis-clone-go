@@ -11,12 +11,20 @@ func get(ctx RequestContext, args []RespValue) {
 		return
 	}
 
-	key := parsedArgs.GetPos(0)
+	key := parsedArgs.GetPos(0).String()
 
-	data, exists := ctx.DB.Get(key.String())
-	if !exists {
+	data, dataExists := ctx.KVStore.Get(key)
+	expiry, expiryExists := ctx.ExpiryStore.Get(key)
+
+	if !dataExists {
 		ctx.SendNullBulkString()
 		return
 	}
+
+	if expiryExists && expiry.Expired() {
+		ctx.SendNullBulkString()
+		return
+	}
+
 	ctx.SendResp(data)
 }

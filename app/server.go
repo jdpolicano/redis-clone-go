@@ -5,31 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 )
-
-type ServerConfig struct {
-	Config map[string]string
-	Lock   sync.RWMutex
-}
-
-func NewServerConfig() *ServerConfig {
-	store := make(map[string]string)
-	return &ServerConfig{store, sync.RWMutex{}}
-}
-
-func (sg *ServerConfig) Set(k string, v string) {
-	sg.Lock.Lock()
-	defer sg.Lock.Unlock()
-	sg.Config[k] = v
-}
-
-func (sg *ServerConfig) Get(k string) (string, bool) {
-	sg.Lock.RLock()
-	defer sg.Lock.RUnlock()
-	v, ok := sg.Config[k]
-	return v, ok
-}
 
 // Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
 func main() {
@@ -43,9 +19,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	db := NewDatabase()
-	config := initServerConfigUnsafe(NewServerConfig())
-	router := initCommandRouter()
+	db := NewKVStore()
+	expiryStore := NewExpiryStore()
+	config := initServerConfig(NewServerConfig())
+	router := initCommandRouter(NewCommandRouter())
 
 	for {
 		conn, err := l.Accept()
@@ -54,14 +31,14 @@ func main() {
 
 			os.Exit(1)
 		}
-		go handleConnection(conn, db, router, config)
+		ctx := NewRequestContext(conn, db, expiryStore, config)
+		go handleConnection(conn, router, ctx)
 	}
 }
 
-func handleConnection(conn net.Conn, db *Database, router *CommandRouter, config *ServerConfig) {
+func handleConnection(conn net.Conn, router CommandRouter, ctx RequestContext) {
 	defer conn.Close()
 	pp := NewProtocolReader(conn, &RespParser{})
-	ctx := NewRequestContext(conn, db, config)
 	for {
 		args, err := pp.ReadProto()
 		if err != nil {
@@ -74,12 +51,11 @@ func handleConnection(conn net.Conn, db *Database, router *CommandRouter, config
 			continue
 		}
 
-		router.Route(*ctx, args.Value.([]RespValue))
+		router.Route(ctx, args.Value.([]RespValue))
 	}
 }
 
-func initCommandRouter() *CommandRouter {
-	router := NewCommandRouter()
+func initCommandRouter(router CommandRouter) CommandRouter {
 	router.Register(GetCommand)
 	router.Register(SetCommand)
 	router.Register(EchoCommand)
@@ -88,10 +64,10 @@ func initCommandRouter() *CommandRouter {
 	return router
 }
 
-func initServerConfigUnsafe(sc *ServerConfig) *ServerConfig {
+func initServerConfig(sc *SharedRWStore[string]) *SharedRWStore[string] {
 	opts := parseCliOptions()
 	for _, tuple := range opts {
-		sc.Config[tuple[0]] = tuple[1]
+		sc.Set(tuple[0], tuple[1])
 	}
 	return sc
 }

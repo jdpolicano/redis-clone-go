@@ -17,7 +17,8 @@ func set(ctx RequestContext, args []RespValue) {
 		ctx.SendError(e.Error())
 		return
 	}
-	key, value := parsedArgs.GetPos(0), parsedArgs.GetPos(1)
+
+	key, value := parsedArgs.GetPos(0).String(), parsedArgs.GetPos(1)
 
 	if px, exists := parsedArgs.GetArg("PX"); exists {
 		milli, e := strconv.Atoi(px.value.String())
@@ -25,11 +26,14 @@ func set(ctx RequestContext, args []RespValue) {
 			ctx.SendError(e.Error())
 			return
 		}
-		ctx.DB.Set(key.String(), value, time.Duration(milli)*time.Millisecond)
+		now := time.Now()
+		expiry := time.Duration(milli) * time.Millisecond
+		ctx.KVStore.Set(key, value)
+		ctx.ExpiryStore.Set(key, Timestamp{now, now, expiry})
 		ctx.SendSimpleString("OK")
 		return
 	}
 
-	ctx.DB.Set(key.String(), value, time.Duration(0))
+	ctx.KVStore.Set(key, value)
 	ctx.SendSimpleString("OK")
 }
