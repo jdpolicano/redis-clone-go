@@ -17,7 +17,7 @@ func NewSharedStore[T any]() *SharedRWStore[T] {
 type Timestamp struct {
 	Created     time.Time
 	LastTouched time.Time
-	Expiry      time.Time // for our purposes, a zero expiry duration indicates infitinite lifetime
+	Expiry      time.Time
 }
 
 func NewKVStore() *SharedRWStore[RespValue] {
@@ -92,7 +92,7 @@ func (db *SharedRWStore[T]) Keys() []string {
 }
 
 func (ts Timestamp) Expired() bool {
-	if ts.Created.After(ts.Expiry) {
+	if time.Now().After(ts.Expiry) {
 		return true
 	}
 	return false
