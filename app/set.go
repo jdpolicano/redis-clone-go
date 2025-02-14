@@ -26,10 +26,9 @@ func set(ctx RequestContext, args []RespValue) {
 			ctx.SendError(e.Error())
 			return
 		}
-		now := time.Now()
 		expiry := time.Duration(milli) * time.Millisecond
 		ctx.KVStore.Set(key, value)
-		ctx.ExpiryStore.Set(key, Timestamp{now, now, expiry})
+		ctx.ExpiryStore.Set(key, NewTimestamp(expiry))
 		ctx.SendSimpleString("OK")
 		return
 	}

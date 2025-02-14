@@ -17,7 +17,7 @@ func NewSharedStore[T any]() *SharedRWStore[T] {
 type Timestamp struct {
 	Created     time.Time
 	LastTouched time.Time
-	Expiry      time.Duration // for our purposes, a zero expiry duration indicates infitinite lifetime
+	Expiry      time.Time // for our purposes, a zero expiry duration indicates infitinite lifetime
 }
 
 func NewKVStore() *SharedRWStore[RespValue] {
@@ -34,7 +34,12 @@ func NewServerConfig() *SharedRWStore[string] {
 
 func NewTimestamp(ttl time.Duration) Timestamp {
 	now := time.Now()
-	return Timestamp{now, now, ttl}
+	return Timestamp{now, now, now.Add(ttl)}
+}
+
+func NewTimestampFromExpiry(expiry time.Time) Timestamp {
+	now := time.Now()
+	return Timestamp{now, now, expiry}
 }
 
 func (db *SharedRWStore[T]) Set(key string, value T) (T, bool) {
@@ -76,8 +81,18 @@ func (db *SharedRWStore[T]) RUnlock(key string) {
 	db.lock.RUnlock()
 }
 
+func (db *SharedRWStore[T]) Keys() []string {
+	db.lock.RLock()
+	defer db.lock.RUnlock()
+	keys := make([]string, 0, len(db.store))
+	for key := range db.store {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 func (ts Timestamp) Expired() bool {
-	if time.Now().Sub(ts.Created) > ts.Expiry {
+	if ts.Created.After(ts.Expiry) {
 		return true
 	}
 	return false

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 )
 
 // Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
@@ -19,9 +21,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	db := NewKVStore()
-	expiryStore := NewExpiryStore()
 	config := initServerConfig(NewServerConfig())
+	db, expiryStore, err := SetupServerDbs(config)
+	if err != nil {
+		os.Exit(2)
+	}
 	router := initCommandRouter(NewCommandRouter())
 
 	for {
@@ -61,6 +65,7 @@ func initCommandRouter(router CommandRouter) CommandRouter {
 	router.Register(EchoCommand)
 	router.Register(PingCommand)
 	router.Register(ConfigCommand)
+	router.Register(KeysCommand)
 	return router
 }
 
@@ -80,4 +85,25 @@ func parseCliOptions() [][]string {
 		{"dir", *dir},
 		{"dbfilename", *dbfilename},
 	}
+}
+
+func SetupServerDbs(config *SharedRWStore[string]) (*SharedRWStore[RespValue], *SharedRWStore[Timestamp], error) {
+	dir, _ := config.Get("dir")               // should always exist
+	dbfilename, _ := config.Get("dbfilename") // should always exist
+	path := filepath.Join(dir, dbfilename)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		fmt.Println("rdb file doesn't exist, starting fresh db instance")
+		return NewKVStore(), NewExpiryStore(), nil
+	}
+	rdbParser, err := NewRDBFileParser(path)
+	if err != nil {
+		fmt.Println("err initiating rdbfile parser, starting fresh db instance", err)
+		return NewKVStore(), NewExpiryStore(), err
+	}
+	dbs, parseErr := rdbParser.Parse()
+	if parseErr != nil {
+		fmt.Println("err parsing rdb file, starting fresh db instance", parseErr)
+		return NewKVStore(), NewExpiryStore(), parseErr
+	}
+	return dbs[0].DB, dbs[0].Expiry, nil
 }

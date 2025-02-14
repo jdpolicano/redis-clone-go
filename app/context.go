@@ -37,6 +37,15 @@ func (rc RequestContext) SendSimpleString(msg string) {
 	return
 }
 
+func (rc RequestContext) SendStringArray(arr []string) {
+	respArr := make([]RespValue, 0, len(arr))
+	for _, s := range arr {
+		respArr = append(respArr, RespValue{BulkString, []byte(s)})
+	}
+	rc.SendResp(RespValue{Array, respArr})
+	return
+}
+
 func (rc RequestContext) SendResp(v RespValue) {
 	payload, err := v.Serialize()
 	if err != nil {
