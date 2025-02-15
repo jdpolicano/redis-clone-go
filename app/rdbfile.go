@@ -242,6 +242,7 @@ func (rdb *RDBFileParser) parseExpiryMilliSec() error {
 	}
 	expirySecs := int64(expiryMilli / 1000)
 	expiryTime := time.Unix(expirySecs, 0)
+
 	return rdb.parseExpiryWithTime(expiryTime)
 }
 
@@ -254,6 +255,8 @@ func (rdb *RDBFileParser) parseExpiryWithTime(expiryTime time.Time) error {
 	if kvErr != nil {
 		return kvErr
 	}
+
+	fmt.Println("key", key, "expires at unix", expiryTime.Unix(), "and utc", expiryTime.UTC())
 	rdb.selector.Expiry.Set(key, NewTimestampFromExpiry(expiryTime))
 	rdb.selector.DB.Set(key, value)
 	return nil
@@ -368,7 +371,7 @@ func (rdb *RDBFileParser) readInt16(order binary.ByteOrder) (int, error) {
 		return 0, e
 	}
 	var b1, b2 int
-	if order == binary.BigEndian {
+	if order == binary.LittleEndian {
 		b1, b2 = int(buf[1]), int(buf[0])
 	} else {
 		b1, b2 = int(buf[0]), int(buf[1])
@@ -383,7 +386,7 @@ func (rdb *RDBFileParser) readInt32(order binary.ByteOrder) (int, error) {
 		return 0, e
 	}
 	var b1, b2, b3, b4 int
-	if order == binary.BigEndian {
+	if order == binary.LittleEndian {
 		b1, b2, b3, b4 = int(buf[3]), int(buf[2]), int(buf[1]), int(buf[0])
 	} else {
 		b1, b2, b3, b4 = int(buf[0]), int(buf[1]), int(buf[2]), int(buf[3])
@@ -398,7 +401,7 @@ func (rdb *RDBFileParser) readInt64(order binary.ByteOrder) (int64, error) {
 		return 0, e
 	}
 	var b1, b2, b3, b4, b5, b6, b7, b8 int64
-	if order == binary.BigEndian {
+	if order == binary.LittleEndian {
 		b1, b2, b3, b4, b5, b6, b7, b8 = int64(buf[7]), int64(buf[6]), int64(buf[5]), int64(buf[4]), int64(buf[3]), int64(buf[2]), int64(buf[1]), int64(buf[0])
 	} else {
 		b1, b2, b3, b4, b5, b6, b7, b8 = int64(buf[0]), int64(buf[1]), int64(buf[2]), int64(buf[3]), int64(buf[4]), int64(buf[5]), int64(buf[6]), int64(buf[7])
