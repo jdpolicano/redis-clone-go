@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"strings"
@@ -18,57 +17,65 @@ type ProtoParser[T any] interface {
 	TryParse([]byte) (T, int, error)
 }
 
-const readChunkSize = 1024 // Amount of data to read each time from the io.Reader
+const ReadChunkSize = 4096 // Amount of data to read each time from the io.Reader
 
 // ProtocolReader wraps an io.Reader and uses a ProtoParser to extract complete messages.
 // It internally uses a bytes.Buffer to accumulate data between reads.
 type ProtocolReader[T any] struct {
-	r   io.Reader
-	pp  ProtoParser[T]
-	buf bytes.Buffer
-	err error // persistent error from the underlying reader (if any)
+	r    io.Reader
+	pp   ProtoParser[T]
+	buf  []byte
+	head int
+	err  error // persistent error from the underlying reader (if any)
 }
 
 // NewProtocolReader returns a new ProtocolReader.
 func NewProtocolReader[T any](r io.Reader, pp ProtoParser[T]) *ProtocolReader[T] {
 	return &ProtocolReader[T]{
-		r:  r,
-		pp: pp,
+		r:    r,
+		pp:   pp,
+		buf:  make([]byte, ReadChunkSize),
+		head: 0,
+		err:  nil,
 	}
 }
 
 // ReadProto attempts to parse and return a complete message of type T from the stream.
 func (pr *ProtocolReader[T]) ReadProto() (T, error) {
-	var temp [readChunkSize]byte
+	var none T
 	for {
 		// If a previous read encountered an error and there is no data buffered,
 		// then return that error.
-		if pr.err != nil && pr.buf.Len() == 0 {
-			return *new(T), pr.err
+		if pr.err != nil && pr.head == 0 {
+			return none, pr.err
 		}
 
 		// Try to parse a message from the current buffer.
-		b := pr.buf.Bytes()
-
-		msg, size, parseErr := pr.pp.TryParse(b)
+		msg, size, parseErr := pr.pp.TryParse(pr.buf[:pr.head])
 		if parseErr == nil {
 			// Successfully parsed a message.
 			// Remove the consumed bytes from the buffer.
-			pr.buf.Next(size)
+			left := pr.head - size
+			if left != 0 {
+				copy(pr.buf, pr.buf[size:pr.head])
+			}
+			pr.head = left
 			return msg, nil
 		} else if parseErr != ErrIncompleteStream {
 			// A genuine parsing error occurred.
-			return *new(T), parseErr
+			return none, parseErr
 		}
 
-		n, err := pr.r.Read(temp[:])
-		if n > 0 {
-			pr.buf.Write(temp[:n])
+		// expand if needed
+		if pr.head == len(pr.buf) {
+			tmp := make([]byte, (len(pr.buf)*2)+1)
+			copy(tmp, pr.buf)
+			pr.buf = tmp
 		}
-		if err != nil {
-			// Save the error so that if there's no more data to parse, we return it.
-			pr.err = err
-		}
+
+		n, err := pr.r.Read(pr.buf[pr.head:])
+		pr.head += n
+		pr.err = err
 	}
 }
 

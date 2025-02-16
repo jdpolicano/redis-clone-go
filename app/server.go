@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 )
@@ -13,21 +14,22 @@ import (
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
-
-	// Uncomment this block to pass the first stage
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
-	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
-		os.Exit(1)
-	}
-
 	config := initServerConfig(NewServerConfig())
 	db, expiryStore, err := SetupServerDbs(config)
 	if err != nil {
 		os.Exit(2)
 	}
-	router := initCommandRouter(NewCommandRouter())
 
+	address := getIpV6Address(config)
+	// Uncomment this block to pass the first stage
+	l, err := net.Listen("tcp", address)
+	if err != nil {
+		fmt.Println("Failed to bind to", address)
+		os.Exit(1)
+	}
+	fmt.Println("listening on", address)
+
+	router := initCommandRouter(NewCommandRouter())
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -78,13 +80,16 @@ func initServerConfig(sc *SharedRWStore[string]) *SharedRWStore[string] {
 }
 
 func parseCliOptions() [][]string {
-	dir := flag.String("dir", "/tmp/redis-data", "the directory for redis data files")
-	dbfilename := flag.String("dbfilename", "dump.rdb", "the name of the db file to write to")
-	flag.Parse()
-	return [][]string{
-		{"dir", *dir},
-		{"dbfilename", *dbfilename},
+	args := [][]string{
+		{"dir", ""},
+		{"dbfilename", ""},
+		{"port", ""},
 	}
+	flag.StringVar(&args[0][1], "dir", "/tmp/redis-data", "the directory for redis data files")
+	flag.StringVar(&args[1][1], "dbfilename", "dump.rdb", "the name of the db file to write to")
+	flag.StringVar(&args[2][1], "port", "6379", "the port to bind this server to")
+	flag.Parse()
+	return args
 }
 
 func SetupServerDbs(config *SharedRWStore[string]) (*SharedRWStore[RespValue], *SharedRWStore[Timestamp], error) {
@@ -106,4 +111,9 @@ func SetupServerDbs(config *SharedRWStore[string]) (*SharedRWStore[RespValue], *
 		return NewKVStore(), NewExpiryStore(), parseErr
 	}
 	return dbs[0].DB, dbs[0].Expiry, nil
+}
+
+func getIpV6Address(config *SharedRWStore[string]) string {
+	port, _ := config.Get("port")
+	return fmt.Sprintf("0.0.0.0:%s", port)
 }

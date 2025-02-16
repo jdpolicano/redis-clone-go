@@ -255,8 +255,6 @@ func (rdb *RDBFileParser) parseExpiryWithTime(expiryTime time.Time) error {
 	if kvErr != nil {
 		return kvErr
 	}
-
-	fmt.Println("key", key, "expires at unix", expiryTime.Unix(), "and utc", expiryTime.UTC())
 	rdb.selector.Expiry.Set(key, NewTimestampFromExpiry(expiryTime))
 	rdb.selector.DB.Set(key, value)
 	return nil
